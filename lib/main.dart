@@ -47,6 +47,12 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
   bool enableAudio = true;
   Timer timer;
 
+  bool recording = false;
+
+  bool paused = false;
+
+  get BASE_PATH => '/data/user/0/cc.oakk.do_something/app_flutter/Pictures/flutter_test';
+
   @override
   void initState() {
     super.initState();
@@ -221,14 +227,14 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
               : null,
         ),
         IconButton(
-          icon: controller != null && controller.value.isRecordingPaused
+          icon: controller != null && paused
               ? Icon(Icons.play_arrow)
               : Icon(Icons.pause),
           color: Colors.blue,
           onPressed: controller != null &&
               controller.value.isInitialized &&
-              controller.value.isRecordingVideo
-              ? (controller != null && controller.value.isRecordingPaused
+              recording
+              ? (controller != null && paused
               ? onResumeButtonPressed
               : onPauseButtonPressed)
               : null,
@@ -238,18 +244,14 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
           color: Colors.red,
           onPressed: controller != null &&
               controller.value.isInitialized &&
-              controller.value.isRecordingVideo
+              recording
               ? onStopButtonPressed
               : null,
         ),
         IconButton(
           icon: const Icon(Icons.build),
           color: Colors.blue,
-          onPressed: controller != null &&
-              controller.value.isInitialized &&
-              controller.value.isRecordingVideo
-              ? onBuildButtonPressed
-              : null,
+          onPressed: onBuildButtonPressed
         )
       ],
     );
@@ -318,15 +320,34 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
   }
 
   void onBuildButtonPressed() {
-    executeFFmpeg("");
+    final command = "-y -start_number 0 -i $BASE_PATH/%d.jpg "
+        "-c:v mpeg4 -vb 20M $BASE_PATH/test.mp4";
+    executeAsyncFFmpeg(command, (executionId, returnCode) {
+      print("FFmpeg process exited with rc $returnCode.");
+
+      print("FFmpeg process output:");
+
+      getLastCommandOutput().then((output) => print(output));
+
+      if (returnCode == 0) {
+        print("Encode completed successfully;");
+      } else {
+        showInSnackBar("Encode failed. Please check log for the details.");
+        print("Encode failed with rc=$returnCode.");
+      }
+    });
   }
 
+  int counter = 0;
   void onTakePictureButtonPressed() {
-    if (timer == null) {
-      // timer = Timer.periodic(Duration(seconds: 5), (t) => onTakePictureButtonPressed());
-    }
     takePicture().then((String filePath) {
       if (mounted) {
+        File file = File(filePath);
+        String newPath = filePath.replaceAllMapped(RegExp(r'([/A-z.0-9_]*\/)([A-z0-9-_]*).([A-z]*)'),
+                (match) => '${match[1]}${counter++}.${match[3]}');
+        file.rename(newPath);
+
+        filePath = newPath;
         setState(() {
           imagePath = filePath;
           videoController?.dispose();
@@ -338,31 +359,48 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
   }
 
   void onVideoRecordButtonPressed() {
-    startVideoRecording().then((String filePath) {
-      if (mounted) setState(() {});
-      if (filePath != null) showInSnackBar('Saving video to $filePath');
-    });
+    // startVideoRecording().then((String filePath) {
+    //   if (mounted) setState(() {});
+    //   if (filePath != null) showInSnackBar('Saving video to $filePath');
+    // });
+
+    if (timer == null) {
+      timer = Timer.periodic(Duration(seconds: 5), (t) => onTakePictureButtonPressed());
+      File(BASE_PATH).delete(recursive: true);
+      setState(() {
+        recording = true;
+      });
+    }
   }
 
   void onStopButtonPressed() {
-    stopVideoRecording().then((_) {
-      if (mounted) setState(() {});
-      showInSnackBar('Video recorded to: $videoPath');
+    timer.cancel();
+    setState(() {
+      recording = false;
     });
+    onBuildButtonPressed();
   }
 
   void onPauseButtonPressed() {
-    pauseVideoRecording().then((_) {
-      if (mounted) setState(() {});
-      showInSnackBar('Video recording paused');
+    timer.cancel();
+    setState(() {
+      paused = true;
     });
+    // pauseVideoRecording().then((_) {
+    //   if (mounted) setState(() {});
+    //   showInSnackBar('Video recording paused');
+    // });
   }
 
   void onResumeButtonPressed() {
-    resumeVideoRecording().then((_) {
-      if (mounted) setState(() {});
-      showInSnackBar('Video recording resumed');
+    timer = Timer.periodic(Duration(seconds: 5), (t) => onTakePictureButtonPressed());
+    setState(() {
+      paused = false;
     });
+    // resumeVideoRecording().then((_) {
+    //   if (mounted) setState(() {});
+    //   showInSnackBar('Video recording resumed');
+    // });
   }
 
   Future<String> startVideoRecording() async {
